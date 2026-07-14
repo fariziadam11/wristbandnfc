@@ -45,7 +45,7 @@ class WalletViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
 
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
 
             if (isDemoMode) {
                 // Use demo data

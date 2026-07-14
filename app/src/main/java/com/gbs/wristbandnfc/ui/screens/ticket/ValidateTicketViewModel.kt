@@ -35,7 +35,7 @@ class ValidateTicketViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = ValidateTicketUiState(isLoading = true)
 
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
 
             if (isDemoMode) {
                 // Use demo validation

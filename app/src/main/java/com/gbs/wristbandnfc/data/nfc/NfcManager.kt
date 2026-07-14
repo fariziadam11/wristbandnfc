@@ -6,72 +6,91 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.nfc.NfcAdapter
 import android.nfc.Tag
-import android.nfc.tech.Ndef
 import android.os.Build
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
-data class NfcState(
-    val isEnabled: Boolean = false,
-    val isReading: Boolean = false,
-    val isWriting: Boolean = false,
-    val lastTag: Tag? = null,
-    val lastError: String? = null
-)
-
+/**
+ * NFC Manager - Handles NFC foreground dispatch and tag detection
+ */
 class NfcManager(private val activity: Activity) {
 
-    private val _nfcState = MutableStateFlow(NfcState())
-    val nfcState: StateFlow<NfcState> = _nfcState.asStateFlow()
+    private val nfcAdapter: NfcAdapter? = NfcAdapter.getDefaultAdapter(activity)
 
-    private var nfcAdapter: NfcAdapter? = null
-    private var pendingIntent: PendingIntent? = null
-    private var intentFilters: Array<IntentFilter>? = null
+    // Check if NFC is available and enabled
+    val isNfcSupported: Boolean get() = nfcAdapter != null
+    val isNfcEnabled: Boolean get() = nfcAdapter?.isEnabled == true
 
-    init {
-        nfcAdapter = NfcAdapter.getDefaultAdapter(activity)
-        setupNfc()
-    }
+    /**
+     * Enable foreground dispatch to receive NFC intents
+     * Call this in Activity.onResume()
+     */
+    fun enableForegroundDispatch() {
+        if (!isNfcSupported || !isNfcEnabled) return
 
-    private fun setupNfc() {
-        pendingIntent = PendingIntent.getActivity(
-            activity,
-            0,
-            Intent(activity, activity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        val intent = Intent(activity, activity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             PendingIntent.FLAG_MUTABLE
-        )
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
 
+        val pendingIntent = PendingIntent.getActivity(activity, 0, intent, flags)
+
+        // Intent filters for NFC discovery
         val ndefFilter = IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
             try {
                 addDataType("*/*")
             } catch (e: IntentFilter.MalformedMimeTypeException) {
-                throw RuntimeException("Failed to add MIME type", e)
+                // Ignore
             }
         }
 
         val tagFilter = IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED)
+        val techFilter = IntentFilter(NfcAdapter.ACTION_TECH_DISCOVERED)
 
-        intentFilters = arrayOf(ndefFilter, tagFilter)
+        val filters = arrayOf(ndefFilter, tagFilter, techFilter)
+
+        // Tech lists for specific tag types (NTAG213/215/216)
+        val techLists = arrayOf(
+            arrayOf("android.nfc.tech.NfcA"),
+            arrayOf("android.nfc.tech.NfcB"),
+            arrayOf("android.nfc.tech.NfcF"),
+            arrayOf("android.nfc.tech.NfcV"),
+            arrayOf("android.nfc.tech.IsoDep"),
+            arrayOf("android.nfc.tech.MifareClassic"),
+            arrayOf("android.nfc.tech.MifareUltralight"),
+            arrayOf("android.nfc.tech.Ndef"),
+            arrayOf("android.nfc.tech.NdefFormatable")
+        )
+
+        nfcAdapter?.enableForegroundDispatch(activity, pendingIntent, filters, techLists)
     }
 
-    fun isNfcSupported(): Boolean = nfcAdapter != null
-
-    fun isNfcEnabled(): Boolean = nfcAdapter?.isEnabled == true
-
-    fun enableForegroundDispatch() {
-        _nfcState.value = _nfcState.value.copy(isEnabled = true)
-        nfcAdapter?.enableForegroundDispatch(activity, pendingIntent, intentFilters, null)
-    }
-
+    /**
+     * Disable foreground dispatch
+     * Call this in Activity.onPause()
+     */
     fun disableForegroundDispatch() {
-        nfcAdapter?.disableForegroundDispatch(activity)
-        _nfcState.value = _nfcState.value.copy(isEnabled = false, isReading = false, isWriting = false)
+        try {
+            nfcAdapter?.disableForegroundDispatch(activity)
+        } catch (e: Exception) {
+            // Ignore errors when disabling
+        }
     }
 
-    fun handleIntent(intent: Intent) {
-        when (intent.action) {
-            NfcAdapter.ACTION_NDEF_DISCOVERED, NfcAdapter.ACTION_TAG_DISCOVERED -> {
+    /**
+     * Process NFC intent from onNewIntent
+     * Call this in Activity.onNewIntent()
+     */
+    fun processIntent(intent: Intent) {
+        val action = intent.action ?: return
+
+        when (action) {
+            NfcAdapter.ACTION_TAG_DISCOVERED,
+            NfcAdapter.ACTION_NDEF_DISCOVERED,
+            NfcAdapter.ACTION_TECH_DISCOVERED -> {
                 val tag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra(NfcAdapter.EXTRA_TAG, Tag::class.java)
                 } else {
@@ -79,45 +98,33 @@ class NfcManager(private val activity: Activity) {
                     intent.getParcelableExtra(NfcAdapter.EXTRA_TAG)
                 }
 
-                if (tag != null) {
-                    _nfcState.value = _nfcState.value.copy(
-                        lastTag = tag,
-                        lastError = null
-                    )
-                }
+                tag?.let { processTag(it) }
             }
         }
     }
 
-    fun startReading() {
-        _nfcState.value = _nfcState.value.copy(isReading = true, isWriting = false)
-    }
+    /**
+     * Process detected NFC tag and emit to event bus
+     */
+    private fun processTag(tag: Tag) {
+        val uid = tag.id.toHexString()
+        val techList = tag.techList.joinToString(",")
 
-    fun stopReading() {
-        _nfcState.value = _nfcState.value.copy(isReading = false)
-    }
-
-    fun startWriting() {
-        _nfcState.value = _nfcState.value.copy(isWriting = true, isReading = false)
-    }
-
-    fun stopWriting() {
-        _nfcState.value = _nfcState.value.copy(isWriting = false)
-    }
-
-    fun setError(error: String?) {
-        _nfcState.value = _nfcState.value.copy(lastError = error)
-    }
-
-    fun clearError() {
-        _nfcState.value = _nfcState.value.copy(lastError = null)
-    }
-
-    fun getTagUid(tag: Tag): String {
-        return tag.id.toHexString()
+        // Emit NFC event to global event bus
+        NfcEventBus.emit(NfcEvent.TagDiscovered(uid, techList))
     }
 
     private fun ByteArray.toHexString(): String {
         return joinToString("") { "%02X".format(it) }
     }
+}
+
+/**
+ * NFC Event types
+ */
+sealed class NfcEvent {
+    data class TagDiscovered(
+        val uid: String,
+        val techList: String
+    ) : NfcEvent()
 }

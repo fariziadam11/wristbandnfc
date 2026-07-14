@@ -10,14 +10,14 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class LoginUiState(
     val isLoading: Boolean = false,
     val isSuccess: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val usingBackend: Boolean = false
 )
 
 @HiltViewModel
@@ -37,30 +37,31 @@ class LoginViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _uiState.value = LoginUiState(isLoading = true)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-            // Check if demo mode is enabled
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            // Auto-detect backend availability
+            val useBackend = !demoModeManager.shouldUseDemoMode()
+            _uiState.value = _uiState.value.copy(usingBackend = useBackend)
 
-            if (isDemoMode) {
-                // Use demo login
-                when (val result = demoRepository.loginDemo()) {
+            if (useBackend) {
+                // Use real API
+                when (val result = authRepository.login(email, password)) {
                     is Result.Success -> {
-                        _uiState.value = LoginUiState(isSuccess = true)
+                        _uiState.value = _uiState.value.copy(isSuccess = true, isLoading = false)
                     }
                     is Result.Error -> {
-                        _uiState.value = LoginUiState(error = result.message)
+                        _uiState.value = _uiState.value.copy(error = result.message, isLoading = false)
                     }
                     is Result.Loading -> {}
                 }
             } else {
-                // Use real API login
-                when (val result = authRepository.login(email, password)) {
+                // Use demo mode (auto-login)
+                when (val result = demoRepository.loginDemo()) {
                     is Result.Success -> {
-                        _uiState.value = LoginUiState(isSuccess = true)
+                        _uiState.value = _uiState.value.copy(isSuccess = true, isLoading = false)
                     }
                     is Result.Error -> {
-                        _uiState.value = LoginUiState(error = result.message)
+                        _uiState.value = _uiState.value.copy(error = result.message, isLoading = false)
                     }
                     is Result.Loading -> {}
                 }

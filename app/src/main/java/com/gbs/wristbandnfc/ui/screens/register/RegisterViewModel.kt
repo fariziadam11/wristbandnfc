@@ -40,7 +40,7 @@ class RegisterViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = RegisterUiState(isLoading = true)
 
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
 
             if (isDemoMode) {
                 // Use demo registration

@@ -41,7 +41,7 @@ class TopupViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = TopupUiState(isLoading = true)
 
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
 
             if (isDemoMode) {
                 // Use demo topup

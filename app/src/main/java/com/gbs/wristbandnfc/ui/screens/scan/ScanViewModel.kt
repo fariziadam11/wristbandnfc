@@ -19,9 +19,12 @@ data class ScanUiState(
     val isScanning: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val nfcEnabled: Boolean = false,
-    val scanResult: Pair<String, String>? = null, // uid, token
-    val scannedData: ScanWristbandResponse? = null
+    val nfcEnabled: Boolean = true,
+    val scanResult: Pair<String, String>? = null,
+    val scannedData: ScanWristbandResponse? = null,
+    // Info tentang tag yang berhasil discan
+    val scannedUid: String? = null,
+    val scannedTechList: String? = null
 )
 
 @HiltViewModel
@@ -37,47 +40,54 @@ class ScanViewModel @Inject constructor(
     private var currentUid: String = ""
     private var currentToken: String = ""
 
-    fun handleNfcIntent(uid: String) {
+    /**
+     * Called when NFC tag is scanned from NfcEventBus
+     * Includes UID and tech list info
+     */
+    fun onNfcTagScanned(uid: String, techList: String = "unknown") {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isScanning = true, isLoading = true)
+            _uiState.value = _uiState.value.copy(
+                isScanning = true,
+                isLoading = true,
+                error = null,
+                scannedUid = uid,
+                scannedTechList = techList
+            )
 
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            currentUid = uid
+            // For real NFC tags, we construct a token based on UID
+            // In production, you would read the token from the NDEF record
+            currentToken = "TKN-${uid.takeLast(6).uppercase()}"
+
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
 
             if (isDemoMode) {
-                // Use demo scan
-                currentUid = uid
-                currentToken = "TKN-${uid.takeLast(6)}"
                 validateWristbandDemo(currentUid, currentToken)
             } else {
-                // Use real API
-                currentUid = uid
-                currentToken = "DEMO-TOKEN"
                 validateWristband(currentUid, currentToken)
             }
         }
     }
 
-    private fun validateWristband(uid: String, token: String) {
-        viewModelScope.launch {
-            when (val result = wristbandRepository.scanWristband(uid, token)) {
-                is Result.Success -> {
-                    _uiState.value = _uiState.value.copy(
-                        isScanning = false,
-                        isLoading = false,
-                        scanResult = Pair(uid, token),
-                        scannedData = result.data
-                    )
-                }
-                is Result.Error -> {
-                    _uiState.value = _uiState.value.copy(
-                        isScanning = false,
-                        isLoading = false,
-                        error = result.message
-                    )
-                }
-                is Result.Loading -> {
-                    _uiState.value = _uiState.value.copy(isLoading = true)
-                }
+    private suspend fun validateWristband(uid: String, token: String) {
+        when (val result = wristbandRepository.scanWristband(uid, token)) {
+            is Result.Success -> {
+                _uiState.value = _uiState.value.copy(
+                    isScanning = false,
+                    isLoading = false,
+                    scanResult = Pair(uid, token),
+                    scannedData = result.data
+                )
+            }
+            is Result.Error -> {
+                _uiState.value = _uiState.value.copy(
+                    isScanning = false,
+                    isLoading = false,
+                    error = result.message
+                )
+            }
+            is Result.Loading -> {
+                _uiState.value = _uiState.value.copy(isLoading = true)
             }
         }
     }
@@ -108,23 +118,59 @@ class ScanViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
 
             if (isDemoMode) {
-                // Use demo data
                 val demoUid = "DEMO-UID-001"
                 val demoToken = "TKN-DEMO1"
+                _uiState.value = _uiState.value.copy(
+                    scannedUid = demoUid,
+                    scannedTechList = "demo"
+                )
                 validateWristbandDemo(demoUid, demoToken)
             } else {
-                // Use real API
                 val demoUid = "DEMO-UID-001"
                 val demoToken = "TKN-DEMO1"
+                _uiState.value = _uiState.value.copy(
+                    scannedUid = demoUid,
+                    scannedTechList = "demo"
+                )
                 validateWristband(demoUid, demoToken)
             }
         }
     }
 
+    // Scan with specific UID for testing
+    fun scanWithUid(uid: String) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(scannedUid = uid, scannedTechList = "manual")
+
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
+            val token = "TKN-${uid.takeLast(6).uppercase()}"
+
+            if (isDemoMode) {
+                validateWristbandDemo(uid, token)
+            } else {
+                validateWristband(uid, token)
+            }
+        }
+    }
+
+    // Alias for compatibility
+    fun simulateScanWithUid(uid: String) = scanWithUid(uid)
+
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
+        _uiState.value = _uiState.value.copy(error = null, scannedUid = null, scannedTechList = null)
+    }
+
+    fun resetScanResult() {
+        _uiState.value = _uiState.value.copy(
+            scanResult = null,
+            scannedData = null,
+            error = null,
+            scannedUid = null,
+            scannedTechList = null
+        )
     }
 }

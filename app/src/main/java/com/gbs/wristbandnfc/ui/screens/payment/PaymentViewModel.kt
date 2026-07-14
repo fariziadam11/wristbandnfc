@@ -42,7 +42,7 @@ class PaymentViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = PaymentUiState(isLoading = true)
 
-            val isDemoMode = demoModeManager.isDemoModeEnabled.first()
+            val isDemoMode = demoModeManager.isDemoModeEnabled()
 
             if (isDemoMode) {
                 // Use demo payment

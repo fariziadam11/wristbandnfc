@@ -10,14 +10,25 @@ import javax.inject.Singleton
 
 /**
  * Demo repository that provides mock data for testing without backend
+ * Includes user's MIFARE Classic 1K wristband: UID D50D915E
  */
 @Singleton
 class DemoRepository @Inject constructor(
     private val sessionManager: SessionManager
 ) {
     private val demoCustomers = listOf(
+        // User's actual MIFARE Classic wristband
         DemoCustomer(
             id = "cust-001",
+            name = "Pemilik Wristband",
+            uid = "D50D915E",
+            token = "TKN-D50D91",  // Token derived from UID
+            balance = 150000L,
+            ticketStatus = "valid"
+        ),
+        // Demo customers for testing
+        DemoCustomer(
+            id = "cust-002",
             name = "Budi Santoso",
             uid = "DEMO-UID-001",
             token = "TKN-DEMO1",
@@ -25,7 +36,7 @@ class DemoRepository @Inject constructor(
             ticketStatus = "valid"
         ),
         DemoCustomer(
-            id = "cust-002",
+            id = "cust-003",
             name = "Ani Wijaya",
             uid = "DEMO-UID-002",
             token = "TKN-DEMO2",
@@ -33,7 +44,7 @@ class DemoRepository @Inject constructor(
             ticketStatus = "valid"
         ),
         DemoCustomer(
-            id = "cust-003",
+            id = "cust-004",
             name = "Dewi Lestari",
             uid = "DEMO-UID-003",
             token = "TKN-DEMO3",
@@ -66,40 +77,56 @@ class DemoRepository @Inject constructor(
     }
 
     fun scanWristband(uid: String, token: String): Result<ScanWristbandResponse> {
-        val customer = demoCustomers.find { it.uid == uid && it.token == token }
-        return if (customer != null) {
+        // Normalize UID - remove colons and convert to uppercase
+        val normalizedUid = uid.replace(":", "").uppercase()
+
+        // Find by exact UID match
+        val customer = demoCustomers.find { it.uid.uppercase() == normalizedUid }
+
+        // If not found, try partial match (last 6 chars)
+        val customerByPartial = customer ?: demoCustomers.find {
+            it.uid.takeLast(6).uppercase() == normalizedUid.takeLast(6)
+        }
+
+        return if (customerByPartial != null) {
             Result.Success(
                 ScanWristbandResponse(
-                    wristbandId = customer.id,
-                    uid = customer.uid,
-                    token = customer.token,
+                    wristbandId = customerByPartial.id,
+                    uid = customerByPartial.uid,
+                    token = customerByPartial.token,
                     status = "active",
-                    customer = Customer(id = customer.id, name = customer.name),
-                    wallet = Wallet(id = "wallet-${customer.id}", balance = customer.balance, currency = "IDR"),
+                    customer = Customer(id = customerByPartial.id, name = customerByPartial.name),
+                    wallet = Wallet(
+                        id = "wallet-${customerByPartial.id}",
+                        balance = customerByPartial.balance,
+                        currency = "IDR"
+                    ),
                     activeTickets = listOf(
                         Ticket(
                             id = "ticket-001",
                             ticketType = "1-day-pass",
                             description = "Tiket masuk 1 hari",
                             price = 50000,
-                            status = customer.ticketStatus,
+                            status = customerByPartial.ticketStatus,
                             validFrom = "2024-01-01T00:00:00Z",
-                            validUntil = "2024-12-31T23:59:59Z",
-                            usedAt = if (customer.ticketStatus == "used") "2024-01-01T10:00:00Z" else null
+                            validUntil = "2026-12-31T23:59:59Z",
+                            usedAt = if (customerByPartial.ticketStatus == "used") "2024-01-01T10:00:00Z" else null
                         )
                     )
                 )
             )
         } else {
-            Result.Error("Wristband tidak ditemukan")
+            Result.Error("Wristband tidak ditemukan. UID: $normalizedUid")
         }
     }
 
     fun payment(uid: String, token: String, amount: Long): Result<PaymentResponse> {
-        val customer = demoCustomers.find { it.uid == uid && it.token == token }
+        val normalizedUid = uid.replace(":", "").uppercase()
+        val customer = demoCustomers.find { it.uid.replace(":", "").uppercase() == normalizedUid }
+
         return when {
             customer == null -> Result.Error("Wristband tidak ditemukan")
-            customer.balance < amount -> Result.Error("Saldo tidak mencukupi")
+            customer.balance < amount -> Result.Error("Saldo tidak mencukupi. Saldo: Rp ${customer.balance}")
             else -> {
                 val newBalance = customer.balance - amount
                 val transactionId = "txn-${System.currentTimeMillis()}"
@@ -129,7 +156,9 @@ class DemoRepository @Inject constructor(
     }
 
     fun topup(uid: String, token: String, amount: Long): Result<TopupResponse> {
-        val customer = demoCustomers.find { it.uid == uid && it.token == token }
+        val normalizedUid = uid.replace(":", "").uppercase()
+        val customer = demoCustomers.find { it.uid.replace(":", "").uppercase() == normalizedUid }
+
         return when {
             customer == null -> Result.Error("Wristband tidak ditemukan")
             else -> {
@@ -161,33 +190,34 @@ class DemoRepository @Inject constructor(
     }
 
     fun validateTicket(uid: String, token: String): Result<ValidateTicketResponse> {
-        val customer = demoCustomers.find { it.uid == uid && it.token == token }
+        val normalizedUid = uid.replace(":", "").uppercase()
+        val customer = demoCustomers.find { it.uid.replace(":", "").uppercase() == normalizedUid }
+
         return when {
-            customer == null -> Result.Error("Wristband tidak ditemukan")
+            customer == null -> Result.Error("Wristband tidak ditemukan. UID: $normalizedUid")
             customer.ticketStatus == "used" -> Result.Success(
                 ValidateTicketResponse(
                     result = "already_used",
                     ticketType = "1-day-pass",
-                    validUntil = "2024-12-31T23:59:59Z",
+                    validUntil = "2026-12-31T23:59:59Z",
                     usedAt = "2024-01-01T10:00:00Z",
-                    message = "Tiket sudah digunakan"
+                    message = "Tiket sudah digunakan sebelumnya"
                 )
             )
             else -> Result.Success(
                 ValidateTicketResponse(
                     result = "valid",
                     ticketType = "1-day-pass",
-                    validUntil = "2024-12-31T23:59:59Z",
+                    validUntil = "2026-12-31T23:59:59Z",
                     usedAt = null,
-                    message = "Tiket valid"
+                    message = "Tiket VALID - Silakan masuk!"
                 )
             )
         }
     }
 
     fun getTransactions(wristbandId: String): Result<List<Transaction>> {
-        val wristbandTransactions = transactions.filter { it.id.contains(wristbandId) }
-        return Result.Success(wristbandTransactions)
+        return Result.Success(emptyList())
     }
 
     fun registerWristband(customerName: String): Result<RegisterWristbandResponse> {

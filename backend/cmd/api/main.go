@@ -26,17 +26,8 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	// Auto migrate
-	if err := db.AutoMigrate(
-		&model.User{},
-		&model.Wristband{},
-		&model.Wallet{},
-		&model.Transaction{},
-		&model.Ticket{},
-		&model.AuditLog{},
-	); err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
-	}
+	// Skip auto-migrate - tables already exist
+	log.Println("Using existing database tables...")
 
 	// Seed data
 	seedData(db, cfg)

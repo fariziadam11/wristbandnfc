@@ -1,7 +1,6 @@
 package com.gbs.wristbandnfc.di
 
 import android.content.Context
-import com.gbs.wristbandnfc.data.util.DemoModeManager
 import com.gbs.wristbandnfc.util.SessionManager
 import dagger.Module
 import dagger.Provides
@@ -20,13 +19,5 @@ object AppModule {
         @ApplicationContext context: Context
     ): SessionManager {
         return SessionManager(context)
-    }
-
-    @Provides
-    @Singleton
-    fun provideDemoModeManager(
-        @ApplicationContext context: Context
-    ): DemoModeManager {
-        return DemoModeManager(context)
     }
 }
